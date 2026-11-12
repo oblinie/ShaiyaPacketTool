@@ -20,4 +20,5 @@ target_compile_definitions(ShaiyaPacketTool PRIVATE
 
 target_link_libraries(ShaiyaPacketTool PRIVATE
     comctl32
+    ws2_32
 )
