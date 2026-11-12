@@ -1,4 +1,4 @@
-name: Build ShaiyaPacketTool DLL
+name: Build ShaiyaPacketTool
 
 on:
   push:
@@ -10,18 +10,20 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure x86 build
+      - name: Configure x86
         run: cmake -S . -B build -A Win32
 
-      - name: Build Release DLL
+      - name: Build Release
         run: cmake --build build --config Release
 
-      - name: Upload DLL
+      - name: Upload DLL and TestLoader
         uses: actions/upload-artifact@v4
         with:
           name: ShaiyaPacketTool-Win32
-          path: build/Release/ShaiyaPacketTool.dll
+          path: |
+            build/Release/ShaiyaPacketTool.dll
+            build/Release/TestLoader.exe
           if-no-files-found: error
