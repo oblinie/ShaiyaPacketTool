@@ -1,0 +1,27 @@
+
+name: Build ShaiyaPacketTool
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -A Win32
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShaiyaPacketTool-Win32
+          path: build/Release/*.exe
