@@ -1,5 +1,6 @@
 #include <winsock2.h>
 #include <windows.h>
+
 #include "MainWindow.h"
 
 static HANDLE g_threadHandle = nullptr;
@@ -10,15 +11,13 @@ static DWORD WINAPI ApplicationThread(LPVOID parameter)
 {
     HINSTANCE instance = static_cast<HINSTANCE>(parameter);
 
-    // Ensure that this thread has a message queue.
-    MSG message;
+    MSG message{};
     PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
 
-    SetEvent(g_readyEvent);
+    if (g_readyEvent)
+        SetEvent(g_readyEvent);
 
-    int result = RunApplication(instance, SW_SHOW);
-
-    return static_cast<DWORD>(result);
+    return static_cast<DWORD>(RunApplication(instance, SW_SHOW));
 }
 
 extern "C" __declspec(dllexport)
@@ -48,10 +47,22 @@ BOOL WINAPI ShaiyaPacketTool_Start(HINSTANCE instance)
         return FALSE;
     }
 
-    WaitForSingleObject(g_readyEvent, INFINITE);
+    DWORD waitResult = WaitForSingleObject(g_readyEvent, 5000);
 
     CloseHandle(g_readyEvent);
     g_readyEvent = nullptr;
+
+    if (waitResult != WAIT_OBJECT_0)
+    {
+        PostThreadMessageW(g_threadId, WM_QUIT, 0, 0);
+        WaitForSingleObject(g_threadHandle, 5000);
+
+        CloseHandle(g_threadHandle);
+        g_threadHandle = nullptr;
+        g_threadId = 0;
+
+        return FALSE;
+    }
 
     return TRUE;
 }
@@ -62,9 +73,13 @@ BOOL WINAPI ShaiyaPacketTool_Stop()
     if (!g_threadHandle)
         return TRUE;
 
-    PostThreadMessageW(g_threadId, WM_QUIT, 0, 0);
+    if (!PostThreadMessageW(g_threadId, WM_QUIT, 0, 0))
+        return FALSE;
 
-    WaitForSingleObject(g_threadHandle, 5000);
+    DWORD waitResult = WaitForSingleObject(g_threadHandle, 5000);
+
+    if (waitResult != WAIT_OBJECT_0)
+        return FALSE;
 
     CloseHandle(g_threadHandle);
     g_threadHandle = nullptr;
