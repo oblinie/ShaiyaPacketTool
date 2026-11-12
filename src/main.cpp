@@ -1,4 +1,4 @@
-
+#include <winsock2.h>
 #include <windows.h>
 #include "MainWindow.h"
 
