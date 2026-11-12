@@ -127,6 +127,16 @@ void MainWindow::CreateControls()
         15, 270, 145, 32, hwnd,
         (HMENU)ID_SEND, nullptr, nullptr);
 
+        CreateWindowW(
+        L"BUTTON", L"Stop Queue",
+        WS_CHILD | WS_VISIBLE,
+        165, 270, 110, 32,
+        hwnd,
+        (HMENU)ID_STOP,
+        nullptr,
+        nullptr
+        );
+
     CreateWindowW(L"STATIC", L"Interval: 50 ms",
         WS_CHILD | WS_VISIBLE,
         175, 278, 150, 22, hwnd, nullptr, nullptr, nullptr);
@@ -373,24 +383,76 @@ void MainWindow::StartPacketQueue()
         &MainWindow::SendLoop, this);
 }
 
+
 void MainWindow::SendLoop()
 {
-    for (size_t i = 0; i < packetQueue.size(); i++)
+    for (size_t i = 0; i < packetQueue.size(); ++i)
     {
         if (!connected || !sending)
             break;
 
-        // No partial or automatic protocol framing:
-        // this test client is not a Shaiya protocol encoder.
-        // Send operations are intentionally not implemented here.
-        AddLog(L"Packet queued: " +
-            std::to_wstring(i + 1));
-        Sleep(sendIntervalMs);
+        SOCKET currentSocket;
+
+        {
+            std::lock_guard<std::mutex> lock(socketMutex);
+            currentSocket = socketHandle;
+        }
+
+        if (currentSocket == INVALID_SOCKET)
+            break;
+
+        const auto& packet = packetQueue[i];
+
+        size_t totalSent = 0;
+        bool success = true;
+
+        while (totalSent < packet.size())
+        {
+            int result = send(
+                currentSocket,
+                reinterpret_cast<const char*>(
+                    packet.data() + totalSent),
+                static_cast<int>(packet.size() - totalSent),
+                0
+            );
+
+            if (result == SOCKET_ERROR || result == 0)
+            {
+                success = false;
+                break;
+            }
+
+            totalSent += static_cast<size_t>(result);
+        }
+
+        if (!success)
+        {
+            AddLog(L"TCP send failed.");
+            connected = false;
+            break;
+        }
+
+        std::wstringstream output;
+        output << L"SENT [" << packet.size() << L" bytes]: ";
+
+        for (unsigned char byte : packet)
+        {
+            wchar_t hex[4];
+            swprintf_s(hex, L"%02X ", byte);
+            output << hex;
+        }
+
+        AddLog(output.str());
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(sendIntervalMs)
+        );
     }
 
     sending = false;
-    AddLog(L"Queue processing ended.");
+    AddLog(L"Packet queue completed.");
 }
+
 
 void MainWindow::StopPacketQueue()
 {
