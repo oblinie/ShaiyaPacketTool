@@ -4,167 +4,158 @@
 #include <commctrl.h>
 #include <sstream>
 #include <iomanip>
-#include <algorithm>
 #include <chrono>
+#include <algorithm>
 
-#pragma comment(lib, "ws2_32.lib")
-
-#define ID_IP          1001
-#define ID_PORT        1002
-#define ID_CONNECT     1003
-#define ID_DISCONNECT  1004
-#define ID_PACKETS     1005
-#define ID_SEND        1006
-#define ID_STOP        1007
-#define ID_CLEAR       1008
-#define ID_LOG         1009
-#define ID_STATUS      1010
-
-#define WM_LOG_MESSAGE (WM_APP + 10)
-
-static const wchar_t WINDOW_CLASS[] =
+static const wchar_t CLASS_NAME[] =
     L"ShaiyaPacketToolWindow";
-
-static WNDPROC g_oldEditProc = nullptr;
-
-static LRESULT CALLBACK PacketEditProc(
-    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    if (msg == WM_KEYDOWN && wParam == VK_RETURN)
-    {
-        if (GetKeyState(VK_CONTROL) & 0x8000)
-            return CallWindowProcW(
-                g_oldEditProc, hwnd, msg, wParam, lParam);
-
-        PostMessageW(
-            GetParent(hwnd), WM_COMMAND,
-            MAKEWPARAM(ID_SEND, BN_CLICKED), 0);
-
-        return 0;
-    }
-
-    return CallWindowProcW(
-        g_oldEditProc, hwnd, msg, wParam, lParam);
-}
 
 MainWindow::MainWindow() {}
 
 MainWindow::~MainWindow()
 {
     DisconnectFromServer();
-    WSACleanup();
 }
 
 void MainWindow::AddLog(const std::wstring& message)
 {
+    if (!window) return;
+
     auto* text = new std::wstring(message);
 
-    if (!PostMessageW(hwnd, WM_LOG_MESSAGE, 0,
-                      reinterpret_cast<LPARAM>(text)))
+    if (!PostMessageW(window, WM_APP_LOG, 0,
+        reinterpret_cast<LPARAM>(text)))
         delete text;
 }
 
-void MainWindow::UpdateStatus(const std::wstring& message)
+void MainWindow::SetStatus(const std::wstring& message)
 {
-    SetWindowTextW(statusLabel, message.c_str());
+    if (!window) return;
+
+    auto* text = new std::wstring(message);
+
+    if (!PostMessageW(window, WM_APP_STATUS, 0,
+        reinterpret_cast<LPARAM>(text)))
+        delete text;
 }
 
 void MainWindow::CreateControls()
 {
     CreateWindowW(L"STATIC", L"Server IP:",
         WS_CHILD | WS_VISIBLE,
-        15, 15, 75, 22, hwnd, nullptr, nullptr, nullptr);
+        15, 15, 75, 22, window, nullptr, nullptr, nullptr);
 
-    ipInput = CreateWindowExW(WS_EX_CLIENTEDGE,
+    serverIpInput = CreateWindowExW(WS_EX_CLIENTEDGE,
         L"EDIT", L"127.0.0.1",
         WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-        90, 12, 180, 25, hwnd,
-        (HMENU)ID_IP, nullptr, nullptr);
+        90, 12, 190, 25, window,
+        (HMENU)ID_SERVER_IP, nullptr, nullptr);
 
     CreateWindowW(L"STATIC", L"Port:",
         WS_CHILD | WS_VISIBLE,
-        290, 15, 45, 22, hwnd, nullptr, nullptr, nullptr);
+        295, 15, 40, 22, window, nullptr, nullptr, nullptr);
 
-    portInput = CreateWindowExW(WS_EX_CLIENTEDGE,
+    serverPortInput = CreateWindowExW(WS_EX_CLIENTEDGE,
         L"EDIT", L"30800",
         WS_CHILD | WS_VISIBLE | ES_NUMBER,
-        335, 12, 80, 25, hwnd,
-        (HMENU)ID_PORT, nullptr, nullptr);
+        335, 12, 80, 25, window,
+        (HMENU)ID_SERVER_PORT, nullptr, nullptr);
 
-    connectButton = CreateWindowW(
-        L"BUTTON", L"Connect",
+    CreateWindowW(L"BUTTON", L"Connect",
         WS_CHILD | WS_VISIBLE,
-        435, 10, 100, 30, hwnd,
+        430, 10, 100, 30, window,
         (HMENU)ID_CONNECT, nullptr, nullptr);
 
-    disconnectButton = CreateWindowW(
-        L"BUTTON", L"Disconnect",
+    CreateWindowW(L"BUTTON", L"Disconnect",
         WS_CHILD | WS_VISIBLE,
-        545, 10, 110, 30, hwnd,
+        540, 10, 110, 30, window,
         (HMENU)ID_DISCONNECT, nullptr, nullptr);
 
     CreateWindowW(L"STATIC", L"HEX Packet Editor",
         WS_CHILD | WS_VISIBLE,
-        15, 55, 200, 22, hwnd, nullptr, nullptr, nullptr);
+        15, 55, 200, 22, window, nullptr, nullptr, nullptr);
 
-    packetEditor = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
+    packetEditor = CreateWindowExW(WS_EX_CLIENTEDGE,
         L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL |
-        ES_MULTILINE | ES_AUTOVSCROLL |
-        ES_WANTRETURN,
-        15, 80, 640, 180, hwnd,
-        (HMENU)ID_PACKETS, nullptr, nullptr);
+        ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
+        15, 80, 640, 180, window,
+        (HMENU)ID_PACKET_EDITOR, nullptr, nullptr);
 
-    g_oldEditProc = reinterpret_cast<WNDPROC>(
-        SetWindowLongPtrW(
-            packetEditor, GWLP_WNDPROC,
-            reinterpret_cast<LONG_PTR>(PacketEditProc)));
-
-    sendButton = CreateWindowW(
-        L"BUTTON", L"Send All (Enter)",
+    CreateWindowW(L"BUTTON", L"Send All",
         WS_CHILD | WS_VISIBLE,
-        15, 270, 145, 32, hwnd,
-        (HMENU)ID_SEND, nullptr, nullptr);
+        15, 270, 110, 32, window,
+        (HMENU)ID_SEND_QUEUE, nullptr, nullptr);
 
-        CreateWindowW(
-        L"BUTTON", L"Stop Queue",
+    CreateWindowW(L"BUTTON", L"Stop Queue",
         WS_CHILD | WS_VISIBLE,
-        165, 270, 110, 32,
-        hwnd,
-        (HMENU)ID_STOP,
-        nullptr,
-        nullptr
-        );
+        135, 270, 110, 32, window,
+        (HMENU)ID_STOP_QUEUE, nullptr, nullptr);
 
-    CreateWindowW(L"STATIC", L"Interval: 50 ms",
+    CreateWindowW(L"STATIC", L"Interval (ms):",
         WS_CHILD | WS_VISIBLE,
-        175, 278, 150, 22, hwnd, nullptr, nullptr, nullptr);
+        270, 278, 90, 22, window, nullptr, nullptr, nullptr);
+
+    intervalInput = CreateWindowExW(WS_EX_CLIENTEDGE,
+        L"EDIT", L"50",
+        WS_CHILD | WS_VISIBLE | ES_NUMBER,
+        365, 273, 70, 25, window,
+        (HMENU)ID_INTERVAL, nullptr, nullptr);
 
     CreateWindowW(L"STATIC", L"Traffic Monitor",
         WS_CHILD | WS_VISIBLE,
-        15, 320, 200, 22, hwnd, nullptr, nullptr, nullptr);
+        15, 320, 200, 22, window, nullptr, nullptr, nullptr);
 
-    trafficLog = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
+    trafficLog = CreateWindowExW(WS_EX_CLIENTEDGE,
         L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL |
-        ES_MULTILINE | ES_AUTOVSCROLL |
-        ES_READONLY,
-        15, 345, 640, 220, hwnd,
-        (HMENU)ID_LOG, nullptr, nullptr);
+        ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+        15, 345, 640, 220, window,
+        (HMENU)ID_TRAFFIC_LOG, nullptr, nullptr);
 
-    statusLabel = CreateWindowW(
-        L"STATIC", L"Disconnected",
+    statusLabel = CreateWindowW(L"STATIC", L"Disconnected",
         WS_CHILD | WS_VISIBLE,
-        15, 580, 640, 25, hwnd,
+        15, 580, 400, 22, window,
         (HMENU)ID_STATUS, nullptr, nullptr);
 
-    clearButton = CreateWindowW(
-        L"BUTTON", L"Clear Log",
+    CreateWindowW(L"BUTTON", L"Clear Log",
         WS_CHILD | WS_VISIBLE,
-        545, 575, 110, 30, hwnd,
-        (HMENU)ID_CLEAR, nullptr, nullptr);
+        540, 575, 110, 30, window,
+        (HMENU)ID_CLEAR_LOG, nullptr, nullptr);
+}
+
+bool MainWindow::ParseHexLine(
+    const std::wstring& line,
+    std::vector<unsigned char>& output)
+{
+    output.clear();
+
+    std::wistringstream stream(line);
+    std::wstring token;
+
+    while (stream >> token)
+    {
+        if (token.size() != 2)
+            return false;
+
+        try
+        {
+            size_t position = 0;
+            unsigned long value = std::stoul(token, &position, 16);
+
+            if (position != token.size() || value > 255)
+                return false;
+
+            output.push_back(
+                static_cast<unsigned char>(value));
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    return !output.empty();
 }
 
 void MainWindow::ConnectToServer()
@@ -175,14 +166,14 @@ void MainWindow::ConnectToServer()
     wchar_t ip[128] = {};
     wchar_t portText[16] = {};
 
-    GetWindowTextW(ipInput, ip, 128);
-    GetWindowTextW(portInput, portText, 16);
+    GetWindowTextW(serverIpInput, ip, 128);
+    GetWindowTextW(serverPortInput, portText, 16);
 
     int port = _wtoi(portText);
 
     if (port < 1 || port > 65535)
     {
-        UpdateStatus(L"Invalid port.");
+        SetStatus(L"Invalid port.");
         return;
     }
 
@@ -190,28 +181,29 @@ void MainWindow::ConnectToServer()
 
     if (s == INVALID_SOCKET)
     {
-        UpdateStatus(L"Socket creation failed.");
+        SetStatus(L"Socket creation failed.");
         return;
     }
 
     sockaddr_in address = {};
     address.sin_family = AF_INET;
-    address.sin_port = htons(
-        static_cast<u_short>(port));
+    address.sin_port = htons(static_cast<u_short>(port));
 
     if (InetPtonW(AF_INET, ip, &address.sin_addr) != 1)
     {
         closesocket(s);
-        UpdateStatus(L"Invalid IPv4 address.");
+        SetStatus(L"Invalid IPv4 address.");
         return;
     }
 
-    if (connect(s,
-        reinterpret_cast<sockaddr*>(&address),
+    SetStatus(L"Connecting...");
+
+    if (connect(s, reinterpret_cast<sockaddr*>(&address),
         sizeof(address)) == SOCKET_ERROR)
     {
         closesocket(s);
-        UpdateStatus(L"Connection failed.");
+        SetStatus(L"Connection failed.");
+        AddLog(L"TCP connection failed.");
         return;
     }
 
@@ -223,7 +215,7 @@ void MainWindow::ConnectToServer()
     connected = true;
 
     AddLog(L"TCP connection established.");
-    UpdateStatus(L"Connected.");
+    SetStatus(L"Connected.");
 
     receiveThread = std::thread(
         &MainWindow::ReceiveLoop, this);
@@ -231,7 +223,7 @@ void MainWindow::ConnectToServer()
 
 void MainWindow::DisconnectFromServer()
 {
-    StopPacketQueue();
+    StopQueue();
 
     SOCKET s = INVALID_SOCKET;
 
@@ -242,8 +234,6 @@ void MainWindow::DisconnectFromServer()
 
         if (s != INVALID_SOCKET)
             shutdown(s, SD_BOTH);
-
-        socketHandle = INVALID_SOCKET;
     }
 
     connected = false;
@@ -251,10 +241,18 @@ void MainWindow::DisconnectFromServer()
     if (receiveThread.joinable())
         receiveThread.join();
 
-    if (s != INVALID_SOCKET)
-        closesocket(s);
+    {
+        std::lock_guard<std::mutex> lock(socketMutex);
 
-    UpdateStatus(L"Disconnected.");
+        if (socketHandle != INVALID_SOCKET)
+        {
+            closesocket(socketHandle);
+            socketHandle = INVALID_SOCKET;
+        }
+    }
+
+    SetStatus(L"Disconnected.");
+    AddLog(L"Disconnected.");
 }
 
 void MainWindow::ReceiveLoop()
@@ -279,10 +277,9 @@ void MainWindow::ReceiveLoop()
             break;
 
         std::wstringstream output;
-
         output << L"RECV [" << received << L" bytes]: ";
 
-        for (int i = 0; i < received; i++)
+        for (int i = 0; i < received; ++i)
         {
             wchar_t hex[4];
             swprintf_s(hex, L"%02X ",
@@ -294,24 +291,25 @@ void MainWindow::ReceiveLoop()
     }
 
     connected = false;
-    AddLog(L"Receive loop ended.");
+    SetStatus(L"Connection closed.");
 }
 
-void MainWindow::StartPacketQueue()
+void MainWindow::StartQueue()
 {
-    if (!connected || sending)
+    if (!connected)
     {
-        UpdateStatus(L"Connect first.");
+        SetStatus(L"Connect to your test server first.");
         return;
     }
+
+    if (running)
+        return;
 
     int length = GetWindowTextLengthW(packetEditor);
 
     std::wstring content(length + 1, L'\0');
 
-    GetWindowTextW(
-        packetEditor, content.data(), length + 1);
-
+    GetWindowTextW(packetEditor, content.data(), length + 1);
     content.resize(length);
 
     packetQueue.clear();
@@ -321,114 +319,100 @@ void MainWindow::StartPacketQueue()
 
     while (std::getline(lines, line))
     {
-        std::wistringstream words(line);
-        std::wstring token;
-
         std::vector<unsigned char> packet;
-        bool valid = true;
 
-        while (words >> token)
+        if (line.find_first_not_of(L" \t\r") == std::wstring::npos)
+            continue;
+
+        if (!ParseHexLine(line, packet))
         {
-            if (token.size() != 2)
-            {
-                valid = false;
-                break;
-            }
-
-            try
-            {
-                size_t position = 0;
-                unsigned long value =
-                    std::stoul(token, &position, 16);
-
-                if (position != token.size() || value > 255)
-                {
-                    valid = false;
-                    break;
-                }
-
-                packet.push_back(
-                    static_cast<unsigned char>(value));
-            }
-            catch (...)
-            {
-                valid = false;
-                break;
-            }
-        }
-
-        if (!valid)
-        {
-            UpdateStatus(L"Invalid HEX line.");
+            SetStatus(L"Invalid HEX line. Queue not started.");
             packetQueue.clear();
             return;
         }
 
-        if (!packet.empty())
-            packetQueue.push_back(packet);
+        packetQueue.push_back(packet);
     }
 
     if (packetQueue.empty())
     {
-        UpdateStatus(L"No valid packets.");
+        SetStatus(L"Packet list is empty.");
         return;
     }
 
-    if (sendThread.joinable())
-        sendThread.join();
+    wchar_t interval[16] = {};
+    GetWindowTextW(intervalInput, interval, 16);
 
-    sending = true;
+    int value = _wtoi(interval);
 
-    sendThread = std::thread(
-        &MainWindow::SendLoop, this);
+    if (value < 10 || value > 60000)
+    {
+        SetStatus(L"Interval must be 10-60000 ms.");
+        return;
+    }
+
+    sendIntervalMs = static_cast<unsigned int>(value);
+
+    running = true;
+
+    queueThread = std::thread(
+        &MainWindow::QueueLoop, this);
+
+    SetStatus(L"Queue started.");
 }
 
-
-void MainWindow::SendLoop()
+void MainWindow::QueueLoop()
 {
     for (size_t i = 0; i < packetQueue.size(); ++i)
     {
-        if (!connected || !sending)
+        if (!running || !connected)
             break;
 
-        SOCKET currentSocket;
+        SOCKET s;
 
         {
             std::lock_guard<std::mutex> lock(socketMutex);
-            currentSocket = socketHandle;
+            s = socketHandle;
         }
 
-        if (currentSocket == INVALID_SOCKET)
+        if (s == INVALID_SOCKET)
             break;
 
         const auto& packet = packetQueue[i];
 
-        size_t totalSent = 0;
+        size_t offset = 0;
         bool success = true;
 
-        while (totalSent < packet.size())
+        while (offset < packet.size() && running && connected)
         {
-            int result = send(
-                currentSocket,
-                reinterpret_cast<const char*>(
-                    packet.data() + totalSent),
-                static_cast<int>(packet.size() - totalSent),
-                0
-            );
+            int sent;
 
-            if (result == SOCKET_ERROR || result == 0)
+            {
+                std::lock_guard<std::mutex> lock(socketMutex);
+
+                if (socketHandle == INVALID_SOCKET)
+                    break;
+
+                sent = send(
+                    socketHandle,
+                    reinterpret_cast<const char*>(
+                        packet.data() + offset),
+                    static_cast<int>(packet.size() - offset),
+                    0);
+            }
+
+            if (sent <= 0)
             {
                 success = false;
                 break;
             }
 
-            totalSent += static_cast<size_t>(result);
+            offset += static_cast<size_t>(sent);
         }
 
-        if (!success)
+        if (!success || offset != packet.size())
         {
             AddLog(L"TCP send failed.");
-            connected = false;
             break;
         }
 
@@ -444,57 +428,55 @@ void MainWindow::SendLoop()
 
         AddLog(output.str());
 
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(sendIntervalMs)
-        );
+        if (i + 1 < packetQueue.size())
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(sendIntervalMs));
+        }
     }
 
-    sending = false;
-    AddLog(L"Packet queue completed.");
+    running = false;
+    SetStatus(L"Queue finished or stopped.");
 }
 
-
-void MainWindow::StopPacketQueue()
+void MainWindow::StopQueue()
 {
-    sending = false;
+    running = false;
 
-    if (sendThread.joinable())
-        sendThread.join();
+    if (queueThread.joinable())
+        queueThread.join();
 }
 
 LRESULT CALLBACK MainWindow::WindowProc(
-    HWND hwnd, UINT message,
-    WPARAM wParam, LPARAM lParam)
+    HWND hwnd,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam)
 {
-    MainWindow* self =
-        reinterpret_cast<MainWindow*>(
-            GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    MainWindow* self = reinterpret_cast<MainWindow*>(
+        GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     if (message == WM_NCCREATE)
     {
-        auto* create =
-            reinterpret_cast<CREATESTRUCTW*>(lParam);
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
 
-        self = static_cast<MainWindow*>(
-            create->lpCreateParams);
+        self = static_cast<MainWindow*>(create->lpCreateParams);
+        self->window = hwnd;
 
-        self->hwnd = hwnd;
-
-        SetWindowLongPtrW(
-            hwnd, GWLP_USERDATA,
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA,
             reinterpret_cast<LONG_PTR>(self));
     }
 
     if (self)
-        return self->HandleMessage(
-            message, wParam, lParam);
+        return self->HandleMessage(message, wParam, lParam);
 
-    return DefWindowProcW(
-        hwnd, message, wParam, lParam);
+    return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
 LRESULT MainWindow::HandleMessage(
-    UINT message, WPARAM wParam, LPARAM lParam)
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam)
 {
     switch (message)
     {
@@ -502,27 +484,32 @@ LRESULT MainWindow::HandleMessage(
         CreateControls();
         return 0;
 
-    case WM_LOG_MESSAGE:
+    case WM_APP_LOG:
+    case WM_APP_STATUS:
     {
-        auto* messageText =
-            reinterpret_cast<std::wstring*>(lParam);
+        auto* text = reinterpret_cast<std::wstring*>(lParam);
 
-        if (messageText)
+        if (text)
         {
-            int length = GetWindowTextLengthW(trafficLog);
+            if (message == WM_APP_STATUS)
+            {
+                SetWindowTextW(statusLabel, text->c_str());
+            }
+            else
+            {
+                int length = GetWindowTextLengthW(trafficLog);
 
-            SendMessageW(
-                trafficLog, EM_SETSEL,
-                length, length);
+                SendMessageW(trafficLog, EM_SETSEL, length, length);
 
-            SendMessageW(
-                trafficLog, EM_REPLACESEL,
-                FALSE,
-                reinterpret_cast<LPARAM>(
-                    (messageText->append(L"\r\n")).c_str()));
+                std::wstring line = *text + L"\r\n";
 
-            delete messageText;
+                SendMessageW(trafficLog, EM_REPLACESEL, FALSE,
+                    reinterpret_cast<LPARAM>(line.c_str()));
+            }
+
+            delete text;
         }
+
         return 0;
     }
 
@@ -537,15 +524,15 @@ LRESULT MainWindow::HandleMessage(
             DisconnectFromServer();
             return 0;
 
-        case ID_SEND:
-            StartPacketQueue();
+        case ID_SEND_QUEUE:
+            StartQueue();
             return 0;
 
-        case ID_STOP:
-            StopPacketQueue();
+        case ID_STOP_QUEUE:
+            StopQueue();
             return 0;
 
-        case ID_CLEAR:
+        case ID_CLEAR_LOG:
             SetWindowTextW(trafficLog, L"");
             return 0;
         }
@@ -553,7 +540,7 @@ LRESULT MainWindow::HandleMessage(
 
     case WM_CLOSE:
         DisconnectFromServer();
-        DestroyWindow(hwnd);
+        DestroyWindow(window);
         return 0;
 
     case WM_DESTROY:
@@ -561,52 +548,46 @@ LRESULT MainWindow::HandleMessage(
         return 0;
     }
 
-    return DefWindowProcW(
-        hwnd, message, wParam, lParam);
+    return DefWindowProcW(window, message, wParam, lParam);
 }
 
-int MainWindow::Run(
-    HINSTANCE hInstance, int nCmdShow)
+int MainWindow::Run(HINSTANCE instance, int showCommand)
 {
     WNDCLASSW wc = {};
-
     wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = WINDOW_CLASS;
+    wc.hInstance = instance;
+    wc.lpszClassName = CLASS_NAME;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
 
-    RegisterClassW(&wc);
+    if (!RegisterClassW(&wc))
+        return 1;
 
-    HWND window = CreateWindowExW(
-        0,
-        WINDOW_CLASS,
-        L"Shaiya Packet Tool",
+    HWND hwnd = CreateWindowExW(
+        0, CLASS_NAME, L"Shaiya Packet Tool",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
         700, 680,
-        nullptr, nullptr,
-        hInstance, this);
+        nullptr, nullptr, instance, this);
 
-    if (!window)
+    if (!hwnd)
         return 1;
 
-    ShowWindow(window, nCmdShow);
-    UpdateWindow(window);
+    ShowWindow(hwnd, showCommand);
+    UpdateWindow(hwnd);
 
-    MSG msg = {};
+    MSG message = {};
 
-    while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+    while (GetMessageW(&message, nullptr, 0, 0) > 0)
     {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
     }
 
-    return static_cast<int>(msg.wParam);
+    return static_cast<int>(message.wParam);
 }
 
-int RunApplication(
-    HINSTANCE hInstance, int nCmdShow)
+int RunApplication(HINSTANCE instance, int showCommand)
 {
     WSADATA data = {};
 
@@ -615,5 +596,9 @@ int RunApplication(
 
     MainWindow application;
 
-    return application.Run(hInstance, nCmdShow);
+    int result = application.Run(instance, showCommand);
+
+    WSACleanup();
+
+    return result;
 }
